@@ -1,21 +1,40 @@
 import os
-import json
 import numpy as np
-from deepvoxnet2.components.mirc import Mirc, Dataset, Case, Record, NiftyFileModality, ArrayModality
-from matplotlib import pyplot as plt
+import nibabel as nib
+from deepvoxnet2.components.sample import Sample
+from deepvoxnet2.components.mirc import Mirc, Dataset, Case, Record, Modality, NiftiFileMultiModality
 
 
-DATASET_DIR = None
-assert DATASET_DIR is not None, "Please provide a dataset directory. It is assumed that the data is organized as /DATASET_DIR/case_<i>/<modality><tag>.nii.gz."
+class NiftiFileEmptyModality(Modality):
+    def __init__(self, modality_id, file_path):
+        super(NiftiFileEmptyModality, self).__init__(modality_id, os.path.dirname(file_path))
+        self.file_path = file_path
+
+    def load(self):
+        nii = nib.load(self.file_path)
+        return Sample(np.zeros(nii.shape), nii.affine)
 
 
-def create_dataset(data=None, fold_i=None, subset=None, nb_folds=5, tag="_2mm", fraction=1, mask_subset=None):
-    dataset_dir = DATASET_DIR
-    all_cases = [dir_name for dir_name in sorted(os.listdir(dataset_dir)) if dir_name.startswith("case")]
+class NiftiFileBinaryModality(Modality):
+    def __init__(self, modality_id, file_path):
+        super(NiftiFileBinaryModality, self).__init__(modality_id, os.path.dirname(file_path))
+        self.file_path = file_path
+
+    def load(self):
+        nii = nib.load(self.file_path)
+        return Sample(nii.get_fdata().astype(bool), nii.affine)
+
+
+def create_dataset(dataset_dir, data=None, fold_i=None, subset=None, nb_folds=5, fraction=1., mask_subset=None):
+    hgg_dir = os.path.join(dataset_dir, "HGG")
+    lgg_dir = os.path.join(dataset_dir, "LGG")
+    hgg_cases = [f"HGG/{dir_name}" for dir_name in sorted(os.listdir(hgg_dir)) if dir_name.startswith("Brats18")]
+    lgg_cases = [f"LGG/{dir_name}" for dir_name in sorted(os.listdir(lgg_dir)) if dir_name.startswith("Brats18")]
+    all_cases = hgg_cases + lgg_cases
     np.random.seed(0)
     np.random.shuffle(all_cases)
     if data is None:
-        assert fold_i is None
+        assert fold_i is None, "When all data is requested it does not make sense to provide a fold number."
         case_ids = all_cases
 
     else:
@@ -33,54 +52,34 @@ def create_dataset(data=None, fold_i=None, subset=None, nb_folds=5, tag="_2mm", 
             raise ValueError("data must be 'train' or 'val'")
 
     case_ids = case_ids[:int(np.round(len(case_ids) * fraction))]
-    median_wt_vol = 87  # 87.527 at native resolution; 86.807 at 2mm resolution
     dataset = Dataset("BRATS2018")
     for case_id in case_ids:
+        tumor_type, subject_id = case_id.split('/')
         case = Case(case_id)
         record = Record("record_0")
-        record.add(NiftyFileModality("flair", os.path.join(dataset_dir, case_id, f"FLAIR{tag}.nii")))
-        record.add(NiftyFileModality("t1", os.path.join(dataset_dir, case_id, f"T1{tag}.nii")))
-        record.add(NiftyFileModality("t1ce", os.path.join(dataset_dir, case_id, f"T1_CE{tag}.nii")))
-        record.add(NiftyFileModality("t2", os.path.join(dataset_dir, case_id, f"T2{tag}.nii")))
-        record.add(NiftyFileModality("wt", os.path.join(dataset_dir, case_id, f"GT_W{tag}.nii")))
-        record.add(NiftyFileModality("wt_orig", os.path.join(dataset_dir, case_id, f"GT_W{tag}.nii")))
-        with open(os.path.join(dataset_dir, case_id, f"GT_W_volume{tag}.txt"), "r") as f:
-            wt_vol = json.load(f)
+        record.add(NiftiFileMultiModality(
+            "input",
+            [
+                os.path.join(dataset_dir, case_id, f"{subject_id}_flair.nii.gz"),
+                os.path.join(dataset_dir, case_id, f"{subject_id}_t1.nii.gz"),
+                os.path.join(dataset_dir, case_id, f"{subject_id}_t1ce.nii.gz"),
+                os.path.join(dataset_dir, case_id, f"{subject_id}_t2.nii.gz")
+            ]))
+        record.add(NiftiFileBinaryModality("output", os.path.join(dataset_dir, case_id, f"{subject_id}_seg.nii.gz")))
+        record.add(NiftiFileBinaryModality("output_orig", os.path.join(dataset_dir, case_id, f"{subject_id}_seg.nii.gz")))
+        if tumor_type == "LGG":
+            if mask_subset == "lgg":
+                record["output"] = NiftiFileEmptyModality("output", os.path.join(dataset_dir, case_id, f"{subject_id}_seg.nii.gz"))
 
-        record.add(ArrayModality("wt_vol", wt_vol))
-        record.add(ArrayModality("wt_vol_orig", wt_vol))
-        with open(os.path.join(dataset_dir, case_id, f"subject_id.txt"), "r") as f:
-            text = f.read()
+            if subset == "hgg":
+                continue
 
-        subject_id = text.split("\n")[0].split(": ")[1]
-        if wt_vol >= median_wt_vol and mask_subset == "large":
-            record["wt"] = NiftyFileModality("wt", os.path.join(dataset_dir, case_id, f"GT_W{tag}_empty.nii"))
-            record["wt_vol"] = ArrayModality("wt_vol", 0)
+        else:
+            if mask_subset == "hgg":
+                record["output"] = NiftiFileEmptyModality("output", os.path.join(dataset_dir, case_id, f"{subject_id}_seg.nii.gz"))
 
-        if wt_vol >= median_wt_vol and subset == "small":
-            continue
-
-        if wt_vol < median_wt_vol and mask_subset == "small":
-            record["wt"] = NiftyFileModality("wt", os.path.join(dataset_dir, case_id, f"GT_W{tag}_empty.nii"))
-            record["wt_vol"] = ArrayModality("wt_vol", 0)
-
-        if wt_vol < median_wt_vol and subset == "large":
-            continue
-
-        lgg_subject_ids = os.listdir("/usr/local/micapollo01/MIC/DATA/SHARED/STAFF/jberte3/BRATS_Challenge/2018/Raw_data/MICCAI_BraTS_2018_Data_Training/LGG")
-        if subject_id in lgg_subject_ids and mask_subset == "lgg":
-            record["wt"] = NiftyFileModality("wt", os.path.join(dataset_dir, case_id, f"GT_W{tag}_empty.nii"))
-            record["wt_vol"] = ArrayModality("wt_vol", 0)
-
-        if subject_id in lgg_subject_ids and subset == "hgg":
-            continue
-
-        if subject_id not in lgg_subject_ids and mask_subset == "hgg":
-            record["wt"] = NiftyFileModality("wt", os.path.join(dataset_dir, case_id, f"GT_W{tag}_empty.nii"))
-            record["wt_vol"] = ArrayModality("wt_vol", 0)
-
-        if subject_id not in lgg_subject_ids and subset == "lgg":
-            continue
+            if subset == "lgg":
+                continue
 
         case.add(record)
         dataset.add(case)
@@ -89,14 +88,9 @@ def create_dataset(data=None, fold_i=None, subset=None, nb_folds=5, tag="_2mm", 
 
 
 if __name__ == "__main__":
-    brats_dataset = create_dataset(subset="lgg")
+    brats_dir = "/usr/local/micapollo01/MIC/DATA/SHARED/STAFF/jberte3/BRATS_Challenge/2018/Raw_data/MICCAI_BraTS_2018_Data_Training"
+    brats_dataset = create_dataset(brats_dir, mask_subset="lgg", fraction=0.1)
     mirc = Mirc(brats_dataset)
-    volumes = []
-    for case_id in brats_dataset:
-        volumes.append(brats_dataset[case_id]["record_0"]["wt_vol"].load().item())
-
-    print(np.mean(volumes), np.mean(volumes) / 0.008)
-    plt.figure()
-    plt.hist(volumes, bins=range(0, 500, 25))
-    plt.show()
-    print(np.median(volumes))
+    mirc.inspect(["input", "output"], ns=0)
+    mean_wt_size = np.mean([brats_dataset[case_id]["record_0"]["output"].load().sum() for case_id in brats_dataset])
+    print("Mean whole tumor size: ", mean_wt_size)
