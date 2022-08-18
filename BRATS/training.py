@@ -13,7 +13,7 @@ from deepvoxnet2.factories.directory_structure import MircStructure
 from BRATS.dataset import create_dataset
 
 
-def train(dataset_dir, base_dir, run_name, fold_i, mask_subset, fraction, phi, epsilon, batch_size):
+def train(dataset_dir, output_dir, fold_i, mask_subset, fraction, phi, epsilon, batch_size):
     # first create the datasets
     train_data = Mirc(create_dataset(dataset_dir, data="train", fold_i=fold_i, mask_subset=mask_subset, fraction=fraction))
     val_data = Mirc(create_dataset(dataset_dir, data="val", fold_i=fold_i, mask_subset=mask_subset, fraction=1))
@@ -69,6 +69,7 @@ def train(dataset_dir, base_dir, run_name, fold_i, mask_subset, fraction, phi, e
     dvn_model.compile("full_val", losses=[soft_dice], metrics=[[dice_score, abs_vol_diff]])
     #
     # directory structure
+    base_dir, run_name = os.path.split(output_dir)
     output_structure = MircStructure(
         base_dir=base_dir,
         run_name=run_name,
@@ -98,8 +99,7 @@ def train(dataset_dir, base_dir, run_name, fold_i, mask_subset, fraction, phi, e
 if __name__ == '__main__':
     train(
         dataset_dir="/usr/local/micapollo01/MIC/DATA/SHARED/STAFF/jberte3/BRATS_Challenge/2018/Raw_data/MICCAI_BraTS_2018_Data_Training",
-        base_dir="/usr/local/micapollo01/MIC/DATA/STAFF/jberte3/tmp/datasets/Runs",
-        run_name="experiments_of_paper",
+        output_dir="/usr/local/micapollo01/MIC/DATA/STAFF/jberte3/tmp/datasets/Runs/experiments_of_paper",
         fold_i=0,
         mask_subset=None,
         fraction=1,
