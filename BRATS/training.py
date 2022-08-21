@@ -13,11 +13,15 @@ from deepvoxnet2.factories.directory_structure import MircStructure
 from BRATS.dataset import create_dataset
 
 
-def train(dataset_dir, output_dir, fold_i, mask_subset, fraction, phi, epsilon, batch_size):
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def train(fold_i, mask_subset, fraction, phi, epsilon, batch_size):
+    output_dir = os.path.join(BASE_DIR, "experiments_of_paper")
     # first create the datasets
-    train_data = Mirc(create_dataset(dataset_dir, data="train", fold_i=fold_i, mask_subset=mask_subset, fraction=fraction))
-    val_data = Mirc(create_dataset(dataset_dir, data="val", fold_i=fold_i, mask_subset=mask_subset, fraction=1))
-    full_val_data = Mirc(create_dataset(dataset_dir, data="val", fold_i=fold_i, mask_subset=None, fraction=1))
+    train_data = Mirc(create_dataset(data="train", fold_i=fold_i, mask_subset=mask_subset, fraction=fraction))
+    val_data = Mirc(create_dataset(data="val", fold_i=fold_i, mask_subset=mask_subset, fraction=1))
+    full_val_data = Mirc(create_dataset(data="val", fold_i=fold_i, mask_subset=None, fraction=1))
     #
     # create samplers from the created datasets
     train_sampler = MircSampler(train_data, shuffle=True)
@@ -47,7 +51,7 @@ def train(dataset_dir, output_dir, fold_i, mask_subset, fraction, phi, epsilon, 
     x_path, y_path = GeometricCrop(y_orig_path, segment_size)(x_path, y_path)
     x_val, y_val = keras_model_transformer(x_path), y_path
     # used for validation of the full images and thus is on the level of the input
-    x_full_val, y_full_val = Put(x_input_2)(x_val), y_orig_input_2
+    x_full_val, y_full_val = Put(x_input)(x_val), y_input
     # create DVN2 model
     dvn_model = DvnModel(
         outputs={
@@ -66,13 +70,12 @@ def train(dataset_dir, output_dir, fold_i, mask_subset, fraction, phi, epsilon, 
     # compile DVN2 model (and Keras model that sits inside it)
     dvn_model.compile("train", optimizer=Adam(learning_rate=1e-3), losses=[soft_dice], metrics=[[dice_score, abs_vol_diff]])
     dvn_model.compile("val", losses=[soft_dice], metrics=[[dice_score, abs_vol_diff]])
-    dvn_model.compile("full_val", losses=[soft_dice], metrics=[[dice_score, abs_vol_diff]])
+    dvn_model.compile("full_val", losses=[soft_dice], metrics=[[dice_score, get_metric("absolute_volume_error", voxel_volume=0.001)]])
     #
     # directory structure
-    base_dir, run_name = os.path.split(output_dir)
     output_structure = MircStructure(
-        base_dir=base_dir,
-        run_name=run_name,
+        base_dir=BASE_DIR,
+        run_name="experiments_of_paper",
         experiment_name=f"{mask_subset}_{fraction}_{phi}_{epsilon}_{batch_size}",
         fold_i=fold_i,
         round_i=None,
@@ -98,12 +101,10 @@ def train(dataset_dir, output_dir, fold_i, mask_subset, fraction, phi, epsilon, 
 
 if __name__ == '__main__':
     train(
-        dataset_dir="/usr/local/micapollo01/MIC/DATA/SHARED/STAFF/jberte3/BRATS_Challenge/2018/Raw_data/MICCAI_BraTS_2018_Data_Training",
-        output_dir="/usr/local/micapollo01/MIC/DATA/STAFF/jberte3/tmp/datasets/Runs/experiments_of_paper",
         fold_i=0,
-        mask_subset=None,
+        mask_subset="lgg",
         fraction=1,
-        phi="BIC",
+        phi="BI",
         epsilon=1e-7,
-        batch_size=2
+        batch_size=4
     )

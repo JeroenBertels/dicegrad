@@ -5,6 +5,9 @@ from deepvoxnet2.components.sample import Sample
 from deepvoxnet2.components.mirc import Mirc, Dataset, Case, Record, Modality, NiftiFileMultiModality
 
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
 class NiftiFileEmptyModality(Modality):
     def __init__(self, modality_id, file_path):
         super(NiftiFileEmptyModality, self).__init__(modality_id, os.path.dirname(file_path))
@@ -25,7 +28,8 @@ class NiftiFileBinaryModality(Modality):
         return Sample(nii.get_fdata().astype(bool), nii.affine)
 
 
-def create_dataset(dataset_dir, data=None, fold_i=None, subset=None, nb_folds=5, fraction=1., mask_subset=None):
+def create_dataset(data=None, fold_i=None, subset=None, nb_folds=5, fraction=1., mask_subset=None):
+    dataset_dir = os.path.join(BASE_DIR, "MICCAI_BraTS_2018_Data_Training")
     hgg_dir = os.path.join(dataset_dir, "HGG")
     lgg_dir = os.path.join(dataset_dir, "LGG")
     hgg_cases = [f"HGG/{dir_name}" for dir_name in sorted(os.listdir(hgg_dir)) if dir_name.startswith("Brats18")]
@@ -68,18 +72,18 @@ def create_dataset(dataset_dir, data=None, fold_i=None, subset=None, nb_folds=5,
         record.add(NiftiFileBinaryModality("output", os.path.join(dataset_dir, case_id, f"{subject_id}_seg.nii.gz")))
         record.add(NiftiFileBinaryModality("output_orig", os.path.join(dataset_dir, case_id, f"{subject_id}_seg.nii.gz")))
         if tumor_type == "LGG":
-            if mask_subset == "lgg":
-                record["output"] = NiftiFileEmptyModality("output", os.path.join(dataset_dir, case_id, f"{subject_id}_seg.nii.gz"))
-
             if subset == "hgg":
                 continue
 
-        else:
-            if mask_subset == "hgg":
+            if mask_subset == "lgg":
                 record["output"] = NiftiFileEmptyModality("output", os.path.join(dataset_dir, case_id, f"{subject_id}_seg.nii.gz"))
 
+        else:
             if subset == "lgg":
                 continue
+
+            if mask_subset == "hgg":
+                record["output"] = NiftiFileEmptyModality("output", os.path.join(dataset_dir, case_id, f"{subject_id}_seg.nii.gz"))
 
         case.add(record)
         dataset.add(case)
@@ -88,8 +92,7 @@ def create_dataset(dataset_dir, data=None, fold_i=None, subset=None, nb_folds=5,
 
 
 if __name__ == "__main__":
-    brats_dir = "/usr/local/micapollo01/MIC/DATA/SHARED/STAFF/jberte3/BRATS_Challenge/2018/Raw_data/MICCAI_BraTS_2018_Data_Training"
-    brats_dataset = create_dataset(brats_dir, mask_subset="lgg", fraction=0.1)
+    brats_dataset = create_dataset(mask_subset="lgg", fraction=0.1)
     mirc = Mirc(brats_dataset)
     mirc.inspect(["input", "output"], ns=0)
     mean_wt_size = np.mean([brats_dataset[case_id]["record_0"]["output"].load().sum() for case_id in brats_dataset])
