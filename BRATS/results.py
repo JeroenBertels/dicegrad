@@ -93,15 +93,14 @@ def make_example(table, case_id, slice_id=68, crop_size=(200, 200), line_thickne
     experiment_name = f"{mask_subset}_{fraction}_{phi}_{epsilon}_{batch_size}"
     data = create_dataset()
     flair = data[case_id]["record_0"]["input"].load()[0, ..., slice_id, 0].T
-    y_true = data[case_id]["record_0"]["output"].load()[0, ..., slice_id, 0].T
     if draw_y_true:
-        y_pred = y_true
+        mask = data[case_id]["record_0"]["output"].load()[0, ..., slice_id, 0].T
 
     else:
-        y_pred = nib.load(glob.glob(os.path.join(BASE_DIR, f"experiments_of_paper/{case_id}/record_0/Validation/{experiment_name}_Round_0_Fold_*/full_val__s0__b0__x.nii.gz"))[0]).get_fdata()[..., slice_id, 0].T
+        mask = nib.load(glob.glob(os.path.join(BASE_DIR, f"experiments_of_paper/{case_id}/record_0/Validation/{experiment_name}_Round_0_Fold_*/full_val__s0__b0__x.nii.gz"))[0]).get_fdata()[..., slice_id, 0].T
 
     fig = plt.figure()
-    overlay = draw_figure(flair, mask_array=y_pred, shift=0, scale=255/1000, line_color=(0, 255, 255), line_thickness=line_thickness, line_type=line_type)
+    overlay = draw_figure(flair, mask_array=mask, shift=0, scale=255/1000, line_color=(0, 255, 255), line_thickness=line_thickness, line_type=line_type)
     overlay = crop(overlay, crop_size).astype("uint8")
     plt.imshow(overlay[..., ::-1])
     plt.axis('off')
